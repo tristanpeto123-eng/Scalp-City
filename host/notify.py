@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import sqlite3
 import time
-from contextlib import closing
+from contextlib import closing, contextmanager
 from urllib.request import Request, urlopen
 from council.runtime import outbox_bus
 
@@ -38,6 +38,16 @@ def read_source(path):
     return con
 
 
+@contextmanager
+def source_ctx(path):
+    source = read_source(path)
+    try:
+        yield source
+    finally:
+        if source is not None:
+            source.close()
+
+
 def deliver_ntfy(topic, count, opener=urlopen):
     if not topic or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in topic):
         raise ValueError("Missing or invalid private notification topic")
@@ -63,13 +73,13 @@ def scan(outbox, ledger, topic, push=deliver_ntfy):
         if row is None:
             # First launch after installation: preserve existing history without a burst
             # of stale notifications; when no source exists, new events start at seq 1.
-            with closing(read_source(outbox)) as source:
+            with source_ctx(outbox) as source:
                 highwater = int(source.execute("SELECT COALESCE(MAX(seq),0) FROM events").fetchone()[0]) if source else 0
             state.execute("INSERT INTO progress(id,last_event_seq) VALUES(1,?)", (highwater,))
             state.commit()
             return {"status":"BASELINED", "last_seq":highwater}
         cursor = int(row[0])
-        with closing(read_source(outbox)) as source:
+        with source_ctx(outbox) as source:
             if source is None:
                 return {"status":"SOURCE_NOT_CONNECTED"}
             if not outbox_bus.verify(source):

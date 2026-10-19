@@ -1,0 +1,7 @@
+# Brain five-minute message relay
+
+The existing Railway host runs a five-minute **read-only Council Outbox monitor** alongside Brain and the Council local supervisor. A new owner-directed message (or a supervisor defect sent to Director/Checker) triggers one notification via ntfy; **unchanged scans do not notify**. The relay verifies Council's hash chain, keeps a delivery cursor on the existing persistent Brain volume, and does not mark mail read, modify agents or grant release permissions. Failed pushes are retried and may duplicate on crash-after-send; this is at-least-once delivery.
+
+Railway environment variable `BRAIN_NTFY_TOPIC` is an unguessable topic generated for the owner; never put this value in the public GitHub repo. Notification bodies are deliberately generic: no message body, secrets, or filenames leave the private Railway host. The owner must install the ntfy iOS app and subscribe to their unique topic before receiving phone notifications. Topic possession gives notification subscription access; treat the subscription link privately.
+
+**Limitations:** This is a phone push notification, **not** a message posted automatically to this ChatGPT conversation. Actual message contents remain in the local Council outbox; a separately authorised inbox viewer or Work app-event task is needed for conversations. The currently live Council supervisor has no configured independent AI workers or migrated missions; no live cross-project task feed is claimed. No fake test messages are emitted by deployment.

@@ -24,3 +24,11 @@ Railway project `Project OS — Brain & Council` runs `python -m host.personal_a
 `python -m unittest discover -s tests -p 'test_owner_console.py' -v`
 
 **Status:** staged PR implementation; not deployed, not an autonomous execution engine. Do not claim end-to-end operational status.
+
+## Security review update (2026-11-08)
+- Initial GitHub Actions run 42511997784 completed successfully for commit 329fd878; this does **not** validate later security changes.
+- Security hardening on the PR branch: server binds only to 127.0.0.1; no direct public binding; nonce-scoped JavaScript CSP; cross-origin write requests rejected; SQLite audit rejects symlink targets and is mode 0600.
+- Added tests for cross-origin action denial and audit-file permissions.
+- A missing or pending CI run for the latest head is a **blocker**. Do not merge based on the initial green run.
+- Console remains inaccessible externally until HTTPS proxy, secret provisioning and security approval are completed. Never expose loopback server directly.
+- GitHub workflow-run list is informational, not a complete required-checks/branch-protection verdict.

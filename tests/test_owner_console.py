@@ -62,8 +62,8 @@ class ConsoleTests(unittest.TestCase):
         result = supervisor_status(root)
         self.assertTrue(result["available"])
         self.assertEqual(result["runs"][0]["status"], "blocked")
-        self.assertFalse(result["owner_approval_granted"])
-        self.assertFalse(result["release_authorised"])
+        self.assertEqual(result["approval_gate"], "not_evaluated_read_only")
+        self.assertEqual(result["release_gate"], "not_evaluated_read_only")
 
     def test_cross_origin_action_rejected(self):
         headers = {"Authorization": "Bearer " + TOKEN,

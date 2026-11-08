@@ -1,6 +1,7 @@
 """Opt-in owner-only Project OS console. No arbitrary commands or implicit approvals."""
 from __future__ import annotations
 import hmac
+import secrets
 import json
 import os
 import sqlite3
@@ -20,7 +21,11 @@ def utc():
 def database(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    db = sqlite3.connect(path)
+    if path.is_symlink():
+        raise ValueError("audit database symlink refused")
+    db = sqlite3.connect(path, timeout=10)
+    os.chmod(path, 0o600)
+    db.execute("PRAGMA busy_timeout=10000")
     db.execute("""CREATE TABLE IF NOT EXISTS actions (
         id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL,
         action TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL)""")
@@ -72,7 +77,7 @@ small{color:#b9c8d0}button:disabled{opacity:.5}</style>
 <button onclick="send('request_owner_review')">Log owner review request</button>
 <p><small>These actions do not merge PRs, grant approval, or execute arbitrary commands.</small></p></section>
 <section><h2>Execution audit</h2><pre id="audit">Not checked</pre></section>
-<script>
+<script nonce="__NONCE__">
 function headers(){return {'Authorization':'Bearer '+document.getElementById('token').value,'Content-Type':'application/json'}}
 async function load(){try{let r=await fetch('/console/status',{headers:headers(),cache:'no-store'});document.getElementById('status').textContent=JSON.stringify(await r.json(),null,2);
 let a=await fetch('/console/audit',{headers:headers(),cache:'no-store'});document.getElementById('audit').textContent=JSON.stringify(await a.json(),null,2)}
@@ -85,13 +90,28 @@ def handler_factory(token, audit_path):
     if len(token) < 32:
         raise ValueError("Owner token must be at least 32 characters")
     class Handler(BaseHTTPRequestHandler):
-        def respond(self, code, data, kind="application/json"):
+        def origin_allowed(self):
+            origin = self.headers.get("Origin")
+            if not origin:
+                return True
+            from urllib.parse import urlsplit
+            try:
+                parsed = urlsplit(origin)
+                return parsed.scheme == "https" and parsed.netloc == self.headers.get("Host", "")
+            except ValueError:
+                return False
+        def respond(self, code, data, kind="application/json", nonce=None):
             raw = data.encode() if isinstance(data, str) else json.dumps(data).encode()
             self.send_response(code)
             self.send_header("Content-Type", kind)
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")
+            policy = "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+            if nonce:
+                policy += "; script-src 'nonce-" + nonce + "'"
+            self.send_header("Content-Security-Policy", policy)
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Frame-Options", "DENY")
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
             self.wfile.write(raw)
@@ -100,7 +120,8 @@ def handler_factory(token, audit_path):
             return hmac.compare_digest(provided.encode(), ("Bearer " + token).encode())
         def do_GET(self):
             if self.path == "/console":
-                return self.respond(200, PAGE, "text/html; charset=utf-8")
+                nonce = secrets.token_urlsafe(24)
+                return self.respond(200, PAGE.replace("__NONCE__", nonce), "text/html; charset=utf-8", nonce=nonce)
             if not self.authorized():
                 return self.respond(401, {"error": "unauthorized"})
             if self.path == "/console/audit":
@@ -116,6 +137,9 @@ def handler_factory(token, audit_path):
                 return self.respond(401, {"error": "unauthorized"})
             if self.path != "/console/action":
                 return self.respond(404, {"error": "not found"})
+            if not self.origin_allowed():
+                return self.respond(403, {"error": "cross-origin request denied"})
+            action = "invalid_action"
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 2048:
@@ -131,7 +155,10 @@ def handler_factory(token, audit_path):
                 record(audit_path, action, "awaiting_review", "Owner review requested; no approval granted")
                 return self.respond(202, {"status": "awaiting_review", "approval_granted": False})
             except Exception as exc:
-                record(audit_path, "refresh_git_status", "failed", type(exc).__name__)
+                try:
+                    record(audit_path, action, "failed", type(exc).__name__)
+                except Exception:
+                    return self.respond(503, {"status": "audit_unavailable", "action_completed": False})
                 return self.respond(503, {"status": "failed", "error_type": type(exc).__name__})
         def log_message(self, *args):
             pass
@@ -143,7 +170,7 @@ def main():
         raise SystemExit("POS_CONSOLE_TOKEN missing or too short; console disabled")
     path = os.environ.get("POS_CONSOLE_AUDIT", "/state/console/audit.sqlite3")
     port = int(os.environ.get("POS_CONSOLE_PORT", "8081"))
-    with ThreadingHTTPServer(("0.0.0.0", port), handler_factory(token, path)) as server:
+    with ThreadingHTTPServer(("127.0.0.1", port), handler_factory(token, path)) as server:
         server.serve_forever()
 
 if __name__ == "__main__":

@@ -32,3 +32,11 @@ Railway project `Project OS — Brain & Council` runs `python -m host.personal_a
 - A missing or pending CI run for the latest head is a **blocker**. Do not merge based on the initial green run.
 - Console remains inaccessible externally until HTTPS proxy, secret provisioning and security approval are completed. Never expose loopback server directly.
 - GitHub workflow-run list is informational, not a complete required-checks/branch-protection verdict.
+
+## Council dashboard integration (staged)
+- Added authenticated GET /console/council: reads actual supervisor SQLite run and incident rows using read-only mode, with explicit unavailable state. Set POS_COUNCIL_ROOT to the existing trusted Council root containing supervisor/state.sqlite3.
+- The interface now displays Council execution status and incidents alongside GitHub monitoring and the audit log.
+- Request throttling is implemented per client IP in-process (30 requests/minute). This is supplementary; enforce rate limits and TLS at the proxy.
+- BLACK_OPS_CMD connector currently exposes list/read/claim/report only; it does **not** expose owner task submission or HTTP worker API. No remote task execution/claim adapter is represented as operational.
+- Owner approval and release gates remain solely in the existing Council runtime. The console never infers gate state or issues approval; approval state is explicitly not evaluated in this read-only view.
+- Run new PR CI on the latest code commit, inspect branch protection, and perform an HTTPS/proxy integration review before any merge or deployment.

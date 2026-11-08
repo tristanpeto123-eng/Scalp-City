@@ -1,5 +1,6 @@
 """Offline contract tests: no fake execution, auth, approval and audit."""
 import json
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -8,7 +9,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from unittest.mock import patch
-from host.owner_console import handler_factory, history
+from host.owner_console import handler_factory, history, supervisor_status
 
 TOKEN = "test-owner-token-" + "x" * 40
 
@@ -43,6 +44,26 @@ class ConsoleTests(unittest.TestCase):
         self.assertEqual(self.request("/console/audit", auth=False)[0], 401)
         self.assertEqual(self.request("/console/action", "POST", "request_owner_review", False)[0], 401)
         self.assertEqual(history(self.audit), [])
+
+    def test_council_unavailable_is_explicit(self):
+        result = supervisor_status(Path(self.temp.name) / "missing")
+        self.assertFalse(result["available"])
+        self.assertEqual(result["runs"], [])
+
+    def test_council_reads_real_sqlite_without_mutating(self):
+        root = Path(self.temp.name) / "council"
+        folder = root / "supervisor"
+        folder.mkdir(parents=True)
+        dbpath = folder / "state.sqlite3"
+        with sqlite3.connect(dbpath) as db:
+            db.execute("CREATE TABLE runs (mission_id TEXT,stage TEXT,role TEXT,run_id TEXT,attempt INT,status TEXT,started REAL,heartbeat REAL,exit_code INT,reason TEXT,changed REAL)")
+            db.execute("CREATE TABLE incidents (mission_id TEXT,run_id TEXT,stage TEXT,kind TEXT,reason TEXT,at REAL,sent INT)")
+            db.execute("INSERT INTO runs VALUES ('MISSION-1','checker','Checker','run-1',1,'blocked',1,2,NULL,'owner approval required',3)")
+        result = supervisor_status(root)
+        self.assertTrue(result["available"])
+        self.assertEqual(result["runs"][0]["status"], "blocked")
+        self.assertFalse(result["owner_approval_granted"])
+        self.assertFalse(result["release_authorised"])
 
     def test_cross_origin_action_rejected(self):
         headers = {"Authorization": "Bearer " + TOKEN,

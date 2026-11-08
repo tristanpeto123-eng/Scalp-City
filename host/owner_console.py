@@ -66,7 +66,7 @@ def supervisor_status(root):
             "SELECT mission_id,run_id,stage,kind,reason,at,sent FROM incidents ORDER BY at DESC LIMIT 40")]
     return {"available": True, "source": "council_supervisor_sqlite_read_only",
             "checked_at": utc(), "runs": runs, "incidents": incidents,
-            "owner_approval_granted": False, "release_authorised": False}
+            "approval_gate": "not_evaluated_read_only", "release_gate": "not_evaluated_read_only"}
 
 
 def github_status():

@@ -44,6 +44,22 @@ class ConsoleTests(unittest.TestCase):
         self.assertEqual(self.request("/console/action", "POST", "request_owner_review", False)[0], 401)
         self.assertEqual(history(self.audit), [])
 
+    def test_cross_origin_action_rejected(self):
+        headers = {"Authorization": "Bearer " + TOKEN,
+                   "Content-Type": "application/json",
+                   "Origin": "https://attacker.example"}
+        req = Request(self.base + "/console/action",
+                      data=b'{"action":"request_owner_review"}',
+                      method="POST", headers=headers)
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(req, timeout=3)
+        self.assertEqual(caught.exception.code, 403)
+        self.assertEqual(history(self.audit), [])
+
+    def test_audit_file_private(self):
+        self.request("/console/action", "POST", "request_owner_review")
+        self.assertEqual(Path(self.audit).stat().st_mode & 0o777, 0o600)
+
     def test_unknown_action_cannot_execute(self):
         self.assertEqual(self.request("/console/action", "POST", "merge_pr")[0], 400)
         self.assertEqual(history(self.audit), [])
